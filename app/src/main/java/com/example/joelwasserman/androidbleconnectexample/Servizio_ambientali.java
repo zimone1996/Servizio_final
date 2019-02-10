@@ -64,7 +64,6 @@ public class Servizio_ambientali extends Service {
     public Servizio_ambientali() {
     }
 
-
     private MyFTPClientFunctions ftpclient = null;
 
     Debug mDebugConsole;
