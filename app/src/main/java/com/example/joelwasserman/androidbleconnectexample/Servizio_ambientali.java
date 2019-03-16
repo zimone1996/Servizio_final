@@ -68,7 +68,7 @@ public class Servizio_ambientali extends Service {
 
     Debug mDebugConsole;
 
-    
+
     private TreeMap<Integer, Node> mDiscoverNode = new TreeMap<>();
     private TreeMap<Long, Node> connessi = new TreeMap<>();
 
