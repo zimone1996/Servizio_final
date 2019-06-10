@@ -1,7 +1,6 @@
 package com.example.joelwasserman.androidbleconnectexample;
 
 import android.annotation.TargetApi;
-import android.app.IntentService;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -17,11 +16,9 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.support.annotation.Nullable;
-import android.support.v4.app.NotificationCompat;
+import android.support.annotation.RequiresApi;
 import android.util.Log;
 import android.widget.Toast;
-
 import com.st.BlueSTSDK.Debug;
 import com.st.BlueSTSDK.Feature;
 import com.st.BlueSTSDK.Features.FeatureCOSensor;
@@ -31,30 +28,35 @@ import com.st.BlueSTSDK.Features.standardCharacteristics.StdCharToFeatureMap;
 import com.st.BlueSTSDK.Node;
 import com.st.BlueSTSDK.Utils.InvalidBleAdvertiseFormat;
 import com.st.BlueSTSDK.Utils.ScanCallbackBridge;
+import net.time4j.android.ApplicationStarter;
+import org.apache.poi.xssf.usermodel.XSSFCell;
+import org.apache.poi.xssf.usermodel.XSSFRow;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Writer;
-import java.security.Provider;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.TreeMap;
-
-import javax.net.ssl.HandshakeCompletedEvent;
-
 import static android.widget.Toast.LENGTH_SHORT;
 
 
@@ -64,14 +66,19 @@ public class Servizio_ambientali extends Service {
     public Servizio_ambientali() {
     }
 
+    //TODO caricare file csv delle posizioni dei sensori
+
     private MyFTPClientFunctions ftpclient = null;
 
     Debug mDebugConsole;
 
+    double posizione_indossabile_x;
+    double posizione_indossabile_y;
 
     private TreeMap<Integer, Node> mDiscoverNode = new TreeMap<>();
     private TreeMap<Long, Node> connessi = new TreeMap<>();
 
+    TreeMap<String, ArrayList<String>> mappa_posizioni = new TreeMap<>();
 
     private HashMap<Node, Humidity_Listener> nodeTomHumidityListener = new HashMap<>();
     private HashMap<Node, TemperatureListener> nodeTomTemperatureListener = new HashMap<>();
@@ -81,9 +88,16 @@ public class Servizio_ambientali extends Service {
     private HashMap<Node, List<FeatureTemperature>> listaTemperature = new HashMap<>();
     private HashMap<Node, List<FeatureCOSensor>> listaCOgas = new HashMap<>();
 
+
+    private HashMap<Node,Double> mappa_pesi = new HashMap<>();
+
     private HashMap<String, Integer> mappa_MacAddress = new HashMap<>();
 
     private HashMap<Node, JSONObject> JsonObj = new HashMap<>();
+
+    private JSONObject allarmi = new JSONObject();
+
+    private JSONObject posizione = new JSONObject();
 
     private HashMap<Node, File> Node2File = new HashMap<>();
 
@@ -94,7 +108,8 @@ public class Servizio_ambientali extends Service {
     File memory = Environment.getExternalStorageDirectory();
 
 
-    SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy \n HH:mm:ss");
+
+
     SimpleDateFormat dateFormat_ora = new SimpleDateFormat("HH:mm:ss");
     SimpleDateFormat dateFormat_minuti = new SimpleDateFormat("HH:mm");
 
@@ -130,13 +145,15 @@ public class Servizio_ambientali extends Service {
     private boolean connessoftp=false;
 
     Date date = new Date();
-    String minuti = dateFormat_minuti.format(date);
+    String minuti;
 
+    @RequiresApi(api = Build.VERSION_CODES.M)
     @Override
     public void onCreate() {
+        ApplicationStarter.initialize(this, true); // with prefetch on background thread
 
 
-
+       // readExcelFile(getApplicationContext(), "prova.xlsx",mappa_posizioni);
 
         ftpclient = new MyFTPClientFunctions();
 
@@ -152,31 +169,38 @@ public class Servizio_ambientali extends Service {
 
             //creo cartella con tempo
 
-
+/*
             File f1 = new File(Environment.getExternalStorageDirectory()+"/Reports", "reports_"+minuti);
-            f1.mkdirs();
+            f1.mkdirs();*/
 
-        path_cartella = f1.getAbsolutePath();
+        File f1;
 
 
-/////Aggiunta MacAddress
-        String path = Environment.getExternalStorageDirectory().toString() + "/MACADDRESS_AMBIENTALI";
 
-        File directory = new File(path);
+
+/////Aggiunta MacAddress e mappa posizioni
+
+
+        String path = Environment.getExternalStorageDirectory().toString() + "/MACADDRESS/Mac.json";
+
+ /*       File directory = new File(path);
 
         File[] files = directory.listFiles();
 
         BufferedReader br;
         String riga = null;
         for (File f : files) {
-            if (f.isFile() && f.getPath().endsWith(".txt")) {
+            if (f.isFile() && f.getPath().endsWith(".json")) {
+                System.out.println("QWER"+f.getName().toString());
                 try {
                     //lettura file
                     br = new BufferedReader(new FileReader(f));
+
                     riga = br.readLine();
                     int i=1;
                     while (riga != null) {
                         listaMACADDRESS_ambientali.add(riga);
+
                         mappa_MacAddress.put(riga,i);
                         riga = br.readLine();
                         i++;
@@ -187,7 +211,60 @@ public class Servizio_ambientali extends Service {
                     Log.d("Exception", e.toString());
                 }
             }
-        }
+        }*/
+
+
+                try {
+                    File yourFile = new File(path);
+                    FileInputStream stream = new FileInputStream(yourFile);
+                    String jsonStr = null;
+                    try {
+                        FileChannel fc = stream.getChannel();
+                        MappedByteBuffer bb = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
+
+                        jsonStr = Charset.defaultCharset().decode(bb).toString();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    } finally {
+                        stream.close();
+                    }
+
+
+                    JSONObject jsonObj = new JSONObject(jsonStr);
+
+
+                    // Getting data JSON Array nodes
+                    JSONArray data  = jsonObj.getJSONArray("Sensori_Ambientali");
+
+                    // looping through All nodes
+                    for (int i = 0; i < data.length(); i++) {
+                        JSONObject c = data.getJSONObject(i);
+                        String id = c.getString("Mac_Address");
+                        JSONObject pos = c.getJSONObject("Posizione");
+                        String pos_x = pos.getString("X");
+                        String pos_y = pos.getString("Y");
+
+                        // adding each child node to HashMap key => value
+                        listaMACADDRESS_ambientali.add(id);
+                        ArrayList<String> position = new ArrayList<>();
+                        position.add(pos_x);
+                        position.add(pos_y);
+                        mappa_posizioni.put(id,position);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
+
+
+
+//NUOVOOOO
+
+
+
+
+        /////////////////////
+
 
 
         btManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
@@ -196,11 +273,20 @@ public class Servizio_ambientali extends Service {
         //    MacAddress.add(MacAmbientale2);
     }
 
+
+
+    long ora_inizio;
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
+        ora_inizio =   System.currentTimeMillis();
+
         nome_utente = intent.getStringExtra("Nome");
         System.out.println("stampato"+nome_utente);
+        minuti = intent.getStringExtra("Minuti");
+        File f1 = new File(memory.getAbsolutePath() + "/Reports" + "/reports_" + minuti);
+        path_cartella = f1.getAbsolutePath();
+        System.out.println("path"+path_cartella);
 
         startScanning();
         Toast.makeText(this, "Servizio ambientale partito", Toast.LENGTH_SHORT).show();
@@ -302,42 +388,73 @@ public class Servizio_ambientali extends Service {
 
 
 
-
                     for (final Integer k : mDiscoverNode.keySet()) {
+
+
+
+                        mDiscoverNode.get(k).readRssi();
+                        System.out.println("PPPPPP"+mDiscoverNode.get(k).getLastRssiUpdateDate());
+
+
+                        ////////////LOCALIZZAZIONE/////////////////
+                        //prendo peso e lo metto nella mappa
+                        Localizzazione loc = new Localizzazione(mDiscoverNode.get(k).getLastRssi());
+                        mappa_pesi.put(mDiscoverNode.get(k),loc.getWeight());
+                        if(!mappa_pesi.isEmpty())
+                            System.out.println("peso"+mappa_pesi.get(mDiscoverNode.get(k)));
+
+                //        mDiscoverNode.get(k).readRssi();
+                 //       System.out.println("peso" + mDiscoverNode.get(k).getLastRssi());
+
+
+
+
+                        ////////////////////
 
                         if (mDiscoverNode.get(k).getTag().equals(deviceAddr)) {
                             mDiscoverNode.get(k).isAlive(rssi);
                             mDiscoverNode.get(k).upDateAdvertising(advertisedData);
 
 
+
+
+                            return;
+                        }
+
+//condizione temporale
+
+
+                        if(-ora_inizio + System.currentTimeMillis() > 5000) {
+
+
                             if (!mDiscoverNode.get(k).isConnected() && !connessi.isEmpty() && connessi.size() == 5) { //5
 
                                 gestisci(mDiscoverNode.get(k));
-                                final Handler handler = new Handler();
 
-                                        if(mDiscoverNode.get(k).isConnected()) {
-                                            enableNeededNotification(mDiscoverNode.get(k));
-                                            startPlotFeature(mDiscoverNode.get(k));
-                                            Toast.makeText(getApplicationContext(), "Dati presi dal sensore ambientale"
-                                                    + mDiscoverNode.get(k).getTag(), Toast.LENGTH_SHORT).show();
-                                        }
-
+                                if (mDiscoverNode.get(k).isConnected()) {
+                                    enableNeededNotification(mDiscoverNode.get(k));
+                                    startPlotFeature(mDiscoverNode.get(k));
+                                    Toast.makeText(getApplicationContext(), "Dati presi dal sensore ambientale"
+                                            + mDiscoverNode.get(k).getTag(), Toast.LENGTH_SHORT).show();
+                                }
                             }
 
 
-                            //aggiunta per riollegarsi a nodi persi se entrato in RR almeno una volta
-                            if(sonoentrato){
+                            //aggiunta per ricollegarsi a nodi persi se entrato in RR almeno una volta
+                            if (sonoentrato) {
                                 if (connessi.size() < 5) {
                                     try {
-                                        connectToDevice(mDiscoverNode.get(k));
-                                        connessi.put(System.currentTimeMillis(),mDiscoverNode.get(k));
-                                    }
-                                    catch (Exception e){
+                                        //NON DEVO AGGIUNGERE CONDIZIONE SU PRESENZA IN CONNESSI?
+                                        if (!presentenellamappa(mDiscoverNode.get(k), connessi)) {
+                                            connectToDevice(mDiscoverNode.get(k));
+                                            connessi.put(System.currentTimeMillis(), mDiscoverNode.get(k));
+                                        }
+                                    } catch (Exception e) {
 
                                     }
                                     //         connessi.put(System.currentTimeMillis(),mDiscoverNode.get(k));
                                     datipresi.remove(mDiscoverNode.get(k));
-                                    datipresi.put(mDiscoverNode.get(k),false);
+                                    datipresi.put(mDiscoverNode.get(k), false);
                                 }
                             }
 
@@ -345,9 +462,8 @@ public class Servizio_ambientali extends Service {
                             if (mDiscoverNode.get(k).getState() == Node.State.Dead && connessi.size() <= 5 && !sonoentrato) { //5
 
 
-
-                                if(presentenellamappa(mDiscoverNode.get(k),connessi))
-                                    rimuovidallamappa(mDiscoverNode.get(k),connessi);
+                                if (presentenellamappa(mDiscoverNode.get(k), connessi))
+                                    rimuovidallamappa(mDiscoverNode.get(k), connessi);
 
                                 Toast.makeText(getApplicationContext(), "Disconnesso da sensore ambientale: " + mDiscoverNode.get(k).getTag()
                                         , LENGTH_SHORT).show();
@@ -357,62 +473,52 @@ public class Servizio_ambientali extends Service {
                                 datipresi.put(mDiscoverNode.get(k), false);
                             }
 
-
-                            return;
-                        }
+                            System.out.println("Stato:" + mDiscoverNode.get(k).getTag() + " " + mDiscoverNode.get(k).getState());
 
 
-                        System.out.println("Stato:" + mDiscoverNode.get(k).getTag() + " " + mDiscoverNode.get(k).getState());
+                            if (mDiscoverNode.get(k).isConnected()) {
 
 
+                                //verifica sui dati se presi
+                                if (!datipresi.get(mDiscoverNode.get(k))) {
+                                    enableNeededNotification(mDiscoverNode.get(k));
+                                    startPlotFeature(mDiscoverNode.get(k));
+                                    Toast.makeText(getApplicationContext(), "Dati presi dal sensore ambientale"
+                                            + mDiscoverNode.get(k).getTag(), Toast.LENGTH_SHORT).show();
+                                    datipresi.put(mDiscoverNode.get(k), true);
+                                }
 
-                        if (mDiscoverNode.get(k).isConnected()) {
-
-
-                            //verifica sui dati se presi
-                            if (!datipresi.get(mDiscoverNode.get(k))) {
-                                enableNeededNotification(mDiscoverNode.get(k));
-                                startPlotFeature(mDiscoverNode.get(k));
-                                Toast.makeText(getApplicationContext(), "Dati presi dal sensore ambientale"
-                                        + mDiscoverNode.get(k).getTag(), Toast.LENGTH_SHORT).show();
-                                datipresi.put(mDiscoverNode.get(k), true);
-                            }
-
-                            //se connesso e non presente in connessi lo aggiungo
-                            if (presentenellamappa(mDiscoverNode.get(k), connessi) == false) {
-                                connessi.put(System.currentTimeMillis(), mDiscoverNode.get(k));
-                            }
+                                //se connesso e non presente in connessi lo aggiungo
+                                if (presentenellamappa(mDiscoverNode.get(k), connessi) == false) {
+                                    connessi.put(System.currentTimeMillis(), mDiscoverNode.get(k));
+                                }
 
                                 //aggiungo nella lista già connessi
-                                if(!presentenellalista(mDiscoverNode.get(k), listadigiaconnessi) && connessi.size()<=5) //5
+                                if (!presentenellalista(mDiscoverNode.get(k), listadigiaconnessi) && connessi.size() <= 5) //5
                                     listadigiaconnessi.add(mDiscoverNode.get(k));
 
 //                                Toast.makeText(getApplicationContext(), "Connesso al sensore ambientale:"
 //                                        + mDiscoverNode.get(k).getTag(), Toast.LENGTH_SHORT).show();
-                        }
-
-
-                        //se non collegato rimuovo
-                        if(!mDiscoverNode.get(k).isConnected() && mDiscoverNode.get(k).getState() != Node.State.Connecting && sonoentrato ){
-
-                            //
-                            if(presentenellamappa(mDiscoverNode.get(k),connessi)) {
-                                rimuovidallamappa(mDiscoverNode.get(k), connessi);
-
-                                ///aggiunta di prova
                             }
 
-                        }
 
+                            //se non collegato rimuovo
+                            if (!mDiscoverNode.get(k).isConnected() && mDiscoverNode.get(k).getState() != Node.State.Connecting && sonoentrato) {
+
+                                //
+                                if (presentenellamappa(mDiscoverNode.get(k), connessi)) {
+                                    rimuovidallamappa(mDiscoverNode.get(k), connessi);
+
+                                    ///aggiunta di prova
+                                }
+
+                            }
+                        }
 
                         System.out.println("Lista connessi" + connessi.size());
                         System.out.println("Lista discovered" + mDiscoverNode.size());
                         System.out.println("Lista già connessi" + listadigiaconnessi.size());
                         System.out.println("Dati presi" + datipresi.size());
-
-
-
-
 
 
                         for(Node i: listadigiaconnessi)  {
@@ -486,8 +592,8 @@ public class Servizio_ambientali extends Service {
                             @Override
                             public void run() {
                                 if (connessi.size() < 5) {//5
-                                    connessi.put(System.currentTimeMillis(),newNode);
-                                    listadigiaconnessi.add(newNode);
+                       //             connessi.put(System.currentTimeMillis(),newNode);
+                       //             listadigiaconnessi.add(newNode);
               //                      int i = 0;
                                    /* if(!connessi.isEmpty()) {
                                         for (long index : connessi.keySet()) {
@@ -496,9 +602,6 @@ public class Servizio_ambientali extends Service {
                                         }
 */
                                     connectToDevice(newNode);
-
-
-
 
                                     //    }
                             //   }
@@ -512,14 +615,9 @@ public class Servizio_ambientali extends Service {
                                     datipresi.put(newNode,false);
                                 }
 */
-
-
                             }
-                        }, 3000);
-
-
-
-                        handler.postDelayed(new Runnable() {
+                        }, 1000);
+                  /*      handler.postDelayed(new Runnable() {
                             @Override
                             public void run() {
 
@@ -527,9 +625,7 @@ public class Servizio_ambientali extends Service {
                                 startPlotFeature(newNode);
 
                             }
-                        }, 5000);
-
-
+                        }, 1000);*/
 
                     }
 
@@ -539,7 +635,6 @@ public class Servizio_ambientali extends Service {
 
             }
         }
-
 
                 }//onLeScan
 
@@ -766,6 +861,10 @@ public class Servizio_ambientali extends Service {
 
     float max_T = 0;
     float massimo_T;
+    int allarme_T=0; //valore superamento soglia T
+    int allarme_H=0; //valore superamento soglia T
+    int allarme_CO=0; //valore superamento soglia T
+    int allarme_Stato=0; //valore superamento soglia T
 
     public static final String FEATURE_TEMPERATURE = "Temperature";
 
@@ -800,6 +899,7 @@ public class Servizio_ambientali extends Service {
             final float data[] = extractData(listaTemperature.get(node), sExtractDataTemp);
             float T = data[1];
             Date date = new Date();
+            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
             final String dateTime = dateFormat.format(date);
             dataString = FEATURE_TEMPERATURE + "  :  " + String.format("%.2f", T) + "[" + unit + "]";
 
@@ -812,11 +912,6 @@ public class Servizio_ambientali extends Service {
             if ((secondi - startTime4) >= 1000) {
                 startTime4 = System.currentTimeMillis();
                 //        listaT.put(dataString + dateTime);
-/*
-
-                node.readRssi();
-                System.out.println("AAA" + node.getLastRssi());
-*/
 
 
                 try {
@@ -831,13 +926,17 @@ public class Servizio_ambientali extends Service {
                 if (listaTemp.size() == 10) {
                     max_T=0;
 
+try {
+    for (Node n : lista_temperatura.keySet()) {
+        if (lista_temperatura.get(n) > max_T) {
+            max_T = lista_temperatura.get(n);
+            massimo_T = lista_temperatura.get(n);
+        }
+    }
+}
+catch (Exception e){
 
-                    for(Node n : lista_temperatura.keySet()) {
-                        if (lista_temperatura.get(n) > max_T) {
-                            max_T = lista_temperatura.get(n);
-                            massimo_T = lista_temperatura.get(n);
-                        }
-                    }
+}
 
 
 
@@ -860,9 +959,10 @@ public class Servizio_ambientali extends Service {
 
 
                     try {
-                        //       listaJson.put("Acquisizioni T " + "\n" + dataOra, JsonarrayT(listaTemp, node));
 
-                        JsonObj.get(node).put("Acquisizioni T " + "\n" + dataOra, JsonarrayT(listaTemp, node));
+         //               JsonObj.get(node).put("Acquisizioni T " + "\n" + dataOra, JsonarrayT(listaTemp, node));
+
+                         JsonarrayT(listaTemp, node);
                     } catch (Exception e) {
                     }
 
@@ -876,9 +976,10 @@ public class Servizio_ambientali extends Service {
 
 
 
+
                     try {
                         output = new BufferedWriter(new FileWriter(file));
-                        output.write('\n' + JsonObj.get(node).toString());
+                        output.write( JsonObj.get(node).toString());
                         datipresi.put(node, true);
 
                         //    output.write('\n' + listaJson.toString());
@@ -1016,12 +1117,44 @@ public class Servizio_ambientali extends Service {
 
 
             Date date = new Date();
+            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
             final String dateTime = dateFormat.format(date);
             final String dataOra = dateFormat_ora.format(date);
 
 
 
             if ((System.currentTimeMillis() - startTime5) >= 1000) {
+
+
+
+                double num_x = 0;
+                double num_y = 0;
+                double somma_coefficienti = 0;
+
+                //////////LOCALIZZAZIONE///////////
+                //Calcolo posizione del sensore indossabile (lavoratore) confronto nodi con quelli connessi
+                //scoro nodi in mappa_rssi; prendo quelli che sono in connessi
+                for(Node n : mappa_pesi.keySet()){
+                    if(presentenellamappa(n,connessi)){
+                        double coeff = mappa_pesi.get(n);
+                        System.out.println("coeff"+coeff);
+                        somma_coefficienti = somma_coefficienti + coeff;
+                        System.out.println("coeff"+somma_coefficienti);
+                        for(String s : mappa_posizioni.keySet()){
+                            if(s.equals(n.getTag())){
+                                num_x = num_x + coeff* Double.parseDouble((mappa_posizioni.get(s).get(0)));
+                                System.out.println("coeff"+num_x);
+                                num_y = num_y + coeff* Double.parseDouble((mappa_posizioni.get(s).get(1)));
+                            }
+                        }
+                    }
+                }
+
+                posizione_indossabile_x = num_x/somma_coefficienti;
+                posizione_indossabile_y = num_y/somma_coefficienti;
+                System.out.println("posizione"+ " " + posizione_indossabile_x+ " " + posizione_indossabile_y);
+
+
 
                 //        listaT.put(dataString + dateTime);
 
@@ -1059,15 +1192,29 @@ public class Servizio_ambientali extends Service {
 */
 
 
+
+
+
                     lista_CO.clear();
 
 
 
 
-                    try {
-                        //       listaJson.put("Acquisizioni T " + "\n" + dataOra, JsonarrayT(listaTemp, node));
 
-                        JsonObj.get(node).put("Acquisizioni CO " + "\n" + dataOra, JsonarrayCO(listaCO, node));
+
+
+
+
+                    try {
+
+
+               //         JsonObj.get(node).put("Acquisizioni CO " + "\n" + dataOra, JsonarrayCO(listaCO, node));
+                          JsonarrayCO(listaCO, node);
+                        //nuovo
+
+                 //       posizione.put("Posizione " + "\n" + dataOra, Jsonarraypos(Double.toString(posizione_indossabile_x),Double.toString(posizione_indossabile_y)));
+                        final String dataOra_p = dateFormat.format(date);
+                        Jsonarraypos(Double.toString(posizione_indossabile_x),Double.toString(posizione_indossabile_y),dataOra_p);
                     } catch (Exception e) {
                     }
 
@@ -1091,7 +1238,6 @@ public class Servizio_ambientali extends Service {
         }
     }
 
-    ;
 
 
 ////////////////////////////////////////////////////HUMIDITY/////////////////////////////////////////////
@@ -1126,15 +1272,17 @@ public class Servizio_ambientali extends Service {
         long startTime3 = System.currentTimeMillis();
 
         @Override
-        public void onUpdate(com.st.BlueSTSDK.Feature f, com.st.BlueSTSDK.Feature.Sample sample) {
+        public void onUpdate(com.st.BlueSTSDK.Feature f, com.st.BlueSTSDK.Feature.Sample sample)  {
             String dataString1;
             String unit = listaHumidity.get(node).get(0).getFieldsDesc()[0].getUnit();
             final float data[] = extractData(listaHumidity.get(node), sExtractDataHum);
             dataString1 = FEATURE_HUMIDITY + "  :  " + getDisplayString(HUM_FORMAT, unit, data);
 
             Date date = new Date();
+            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
             final String dateTime = dateFormat.format(date);
-            final String dataOra = dateFormat_ora.format(date);
+
+            final String dataOra = dateFormat.format(date);
 
             lista_umidita.put(node,(data[0]));
 
@@ -1235,6 +1383,68 @@ public class Servizio_ambientali extends Service {
                         System.out.println("ha inviato");
                     }
 
+
+                    //aggiungo controllo per la generazione file json su log allarmi
+                    if(massimo_T > 10) {
+                        allarme_T = 1;
+                    }
+
+
+                    //aggiungo controllo per la generazione file json su log allarmi
+                    if(massimo_H > 10) {
+                        allarme_H = 1;
+                    }
+
+                    //aggiungo controllo per la generazione file json su log allarmi
+                    if(massimo_CO > 10) {
+                        allarme_CO = 1;
+                    }
+
+
+                    //aggiungo controllo per la generazione file json su log allarmi
+                    if(stato == "001" || stato == "002" || stato == "003") {
+                        allarme_Stato = 1;
+
+                    }
+
+
+
+                    Writer output = null;
+
+                    Writer output2 = null;
+
+
+                    if(allarme_T == 1 || allarme_H == 1 || allarme_CO == 1 || allarme_Stato == 1){
+                        try {
+                            allarmi.put("temperatura", JsonLog_T(allarme_T, dataOra));
+                            allarmi.put("umidita", JsonLog_H(allarme_H, dataOra));
+                            allarmi.put("gas", JsonLog_CO(allarme_CO, dataOra));
+                            allarmi.put("stato", JsonLog_Stato(allarme_T, dataOra));
+                        }
+                        catch (Exception e){
+                        }
+                    }
+
+                    File file1 = new File(path_cartella, "Allarme" + ".json");
+
+                    File file2 = new File(path_cartella, "Posizione" + ".json");
+
+                    try {
+                        output = new BufferedWriter(new FileWriter(file1));
+                        output.write( allarmi.toString());
+
+                        output.close();
+
+
+                        output2 = new BufferedWriter(new FileWriter(file2));
+                        output2.write( posizione.toString());
+                        output2.close();
+                    }
+                    catch (Exception e){
+                    }
+
+
+
                     System.out.println("umi"+lista_umidita.size());
 
                     lista_umidita.clear();
@@ -1246,7 +1456,8 @@ public class Servizio_ambientali extends Service {
 
                     try {
                         //        listaJson.put("Acquisizioni H " +"\n" + dataOra, JsonarrayH(listaHum, node));
-                        JsonObj.get(node).put("Acquisizioni H " + "\n" + dataOra, JsonarrayH(listaHum, node));
+                    //    JsonObj.get(node).put("Acquisizioni H " + "\n" + dataOra, JsonarrayH(listaHum, node));
+                          JsonarrayH(listaHum, node);
                     } catch (Exception e) {
                     }
                     listaHum.clear();
@@ -1303,53 +1514,121 @@ public class Servizio_ambientali extends Service {
 */
 
 
-    private JSONArray JsonarrayT(TreeMap<String, Float> lista, Node n) {
+    private JSONArray JsonarrayT(TreeMap<String, Float> lista, Node n) throws JSONException {
         JSONArray JSONtemp = new JSONArray();
         for (String data : lista.keySet()) {
             JSONObject temperatura = new JSONObject();
             try {
-                temperatura.put("Valore:", lista.get(data));
-                temperatura.put("Unit", "[°C]");
+                temperatura.put("valore", lista.get(data));
+                temperatura.put("unit", "[celsius]");
                 temperatura.put("timestamp", data);
-                temperatura.put("Nodo", n.getTag());
+                temperatura.put("nodo", n.getTag());
                 JSONtemp.put(temperatura);
             } catch (Exception e) {
             }
+            JsonObj.get(n).accumulate("acquisizioni_temperatura", temperatura);
         }
 
         return JSONtemp;
     }
 
 
-    private JSONArray JsonarrayH(TreeMap<String, Float> lista, Node n) {
+    //nuovo
+    private JSONObject Jsonarraypos( String posizione_x, String posizione_y, String hour) throws JSONException {
+        JSONObject pos = new JSONObject();
+        try {
+            pos.put("x", posizione_x);
+            pos.put("y", posizione_y);
+            pos.put("timestamp", hour);
+        }
+        catch (Exception e){
+        }
+        posizione.accumulate("posizione",pos );
+        return posizione;
+    }
+
+
+    private JSONArray JsonarrayH(TreeMap<String, Float> lista, Node n) throws JSONException {
         JSONArray JSONH = new JSONArray();
         for (String data : lista.keySet()) {
             JSONObject umidità = new JSONObject();
             try {
-                umidità.put("Valore:", lista.get(data));
-                umidità.put("Unit", "[%]");
+                umidità.put("valore", lista.get(data));
+                umidità.put("unit", "[%]");
                 umidità.put("timestamp", data);
-                umidità.put("Nodo", n.getTag());
+                umidità.put("nodo", n.getTag());
                 JSONH.put(umidità);
             } catch (Exception e) {
             }
+               JsonObj.get(n).accumulate("acquisizioni_umidita",umidità);
         }
         return JSONH;
     }
 
 
-    private JSONArray JsonarrayCO(TreeMap<String, Float> lista, Node n) {
+    private JSONObject JsonLog_T(int allarmeT, String data) {
+
+            JSONObject log_T = new JSONObject();
+        try {
+                log_T.put("allarme_temperatura",allarmeT);
+                log_T.put("data",data);
+        } catch (Exception e) {
+        }
+        return log_T;
+    }
+
+
+    private JSONObject JsonLog_H(int allarmeH, String data)  {
+
+        JSONObject log_H = new JSONObject();
+        try {
+        log_H.put("allarme_umidita",allarmeH);
+        log_H.put("data",data);
+        } catch (Exception e) {
+        }
+
+        return log_H;
+    }
+
+
+    private JSONObject JsonLog_CO(int allarmeCO, String data)  {
+
+        JSONObject log_CO = new JSONObject();
+        try {
+        log_CO.put("allarme_gas",allarmeCO);
+        log_CO.put("data",data);
+        } catch (Exception e) {
+        }
+        return log_CO;
+    }
+
+
+    private JSONObject JsonLog_Stato(int allarmeS, String data)   {
+
+        JSONObject log_STATO = new JSONObject();
+        try {
+        log_STATO.put("allarme_stato",allarmeS);
+        log_STATO.put("data",data);
+        } catch (Exception e) {
+        }
+        return log_STATO;
+    }
+
+
+
+    private JSONArray JsonarrayCO(TreeMap<String, Float> lista, Node n) throws JSONException {
         JSONArray JSONCO = new JSONArray();
         for (String data : lista.keySet()) {
             JSONObject gasCO = new JSONObject();
             try {
-                gasCO.put("Valore:", lista.get(data));
-                gasCO.put("Unit", "ppm");
+                gasCO.put("valore", lista.get(data));
+                gasCO.put("unit", "[ppm]");
                 gasCO.put("timestamp", data);
-                gasCO.put("Nodo", n.getTag());
+                gasCO.put("nodo", n.getTag());
                 JSONCO.put(gasCO);
             } catch (Exception e) {
             }
+            JsonObj.get(n).accumulate("acquisizioni_gas", gasCO);
         }
         return JSONCO;
     }
@@ -1499,6 +1778,70 @@ public class Servizio_ambientali extends Service {
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private void stopBleScan_post21() {
         btAdapter.getBluetoothLeScanner().stopScan(mScanCallBack_post21);
+    }
+
+
+    private static void readExcelFile(Context context, String filename, TreeMap<String, ArrayList<String>> mappa_posizioni) {
+
+        String[][] coordinate = new String[10][2];
+
+
+        ArrayList<String> MacAddress = new ArrayList<>();
+
+        try {
+            // Creating Input Stream
+            File file = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/prova" + ".xlsx");
+            FileInputStream myInput = new FileInputStream(file);
+
+
+            // Get the first sheet from workbook
+
+            XSSFWorkbook workbook = new XSSFWorkbook(myInput);
+            XSSFSheet mySheet = workbook.getSheetAt(0);
+
+            /** We now need something to iterate through the cells.**/
+            Iterator rowIter = mySheet.rowIterator();
+
+
+            while (rowIter.hasNext()) {
+                XSSFRow myRow = (XSSFRow) rowIter.next();
+                Iterator cellIter = myRow.cellIterator();
+                while (cellIter.hasNext()) {
+                    XSSFCell myCell = (XSSFCell) cellIter.next();
+
+
+                    if (myCell.getColumnIndex() == 1 || myCell.getColumnIndex() == 2) {
+                        coordinate[myCell.getRow().getRowNum()][myCell.getColumnIndex()-1] = myCell.toString(); //prendo i valori delle coordinate
+                        //     System.out.println("AAA"+coordinate[myCell.getRow().getRowNum()][myCell.getColumnIndex()-1]);
+                    }
+
+                    if(myCell.toString().startsWith("C0")) {
+                        MacAddress.add(myCell.toString());
+                    }
+
+                    Log.d("MainActivity", "Cell Value: " + myCell.toString());
+             //       Toast.makeText(context, "cell Value: " + myCell.toString(), Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            System.out.println("MAC"+ MacAddress.get(6).toString());
+
+
+            for(int i=0; i<MacAddress.size(); i++) {
+                ArrayList<String> appoggio = new ArrayList<String>();
+                appoggio.clear();
+                appoggio.add(coordinate[i][0]);
+                appoggio.add(coordinate[i][1]);
+                mappa_posizioni.put(MacAddress.get(i),appoggio);
+            }
+            System.out.println("MAC"+mappa_posizioni.get("C0:85:2C:35:3D:32").get(0));
+            System.out.println("MAC"+mappa_posizioni.get("C0:85:2C:35:3D:32").get(1));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return;
     }
 
 }

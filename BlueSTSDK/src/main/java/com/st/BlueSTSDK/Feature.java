@@ -32,6 +32,7 @@ import android.support.annotation.WorkerThread;
 
 import com.st.BlueSTSDK.Features.Field;
 
+
 import java.util.Arrays;
 import java.util.Date;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -469,7 +470,7 @@ public abstract class Feature {
          * @param sample new data received from the feature
          */
         @WorkerThread
-        void onUpdate( Feature f, Sample sample);
+        void onUpdate( Feature f, Sample sample) ;
 
     }//FeatureListener
 

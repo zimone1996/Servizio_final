@@ -66,8 +66,9 @@ import com.st.BlueSTSDK.Node;
 import com.st.BlueSTSDK.Utils.InvalidBleAdvertiseFormat;
 import com.st.BlueSTSDK.Utils.ScanCallbackBridge;
 
+
+
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedWriter;
@@ -92,7 +93,7 @@ import static android.widget.Toast.LENGTH_SHORT;
 
 public class MainActivity extends AppCompatActivity
 {
-
+    String minuti;
     BluetoothManager btManager;
     BluetoothAdapter btAdapter;
     Button startService1;
@@ -103,7 +104,7 @@ public class MainActivity extends AppCompatActivity
     private static final int PERMISSION_REQUEST_COARSE_LOCATION = 1;
 
     Handler mHandler;
-
+    SimpleDateFormat dateFormat_minuti = new SimpleDateFormat("HH:mm");
 
     String nome_utente;
 
@@ -112,6 +113,7 @@ public class MainActivity extends AppCompatActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
 
 
         try {
@@ -177,7 +179,13 @@ public class MainActivity extends AppCompatActivity
 
 
         if (nome_utente != null) {
-                startService1.setVisibility(View.VISIBLE);
+            //creo cartella
+            Date date = new Date();
+            minuti = dateFormat_minuti.format(date);
+            File f1 = new File(Environment.getExternalStorageDirectory()+"/Reports", "reports_"+minuti);
+            f1.mkdirs();
+
+            startService1.setVisibility(View.VISIBLE);
                 startService_amb1.setVisibility(View.VISIBLE);
             }
 
@@ -234,7 +242,9 @@ public class MainActivity extends AppCompatActivity
 
     public void startService(View v)
     {
-        startService(new Intent(MainActivity.this,Servizio.class));
+        Intent intent = new Intent(MainActivity.this,Servizio.class);
+        intent.putExtra("Minuti", minuti);
+        startService(intent);
     }
 
     public void stopService(View v)
@@ -248,6 +258,7 @@ public class MainActivity extends AppCompatActivity
     {
         Intent intent = new Intent(MainActivity.this,Servizio_ambientali.class);
         intent.putExtra("Nome", nome_utente);
+        intent.putExtra("Minuti", minuti);
         startService(intent);
 
     }
@@ -292,8 +303,6 @@ public class MainActivity extends AppCompatActivity
                 return;
 
             }
-
-
 
         }
 

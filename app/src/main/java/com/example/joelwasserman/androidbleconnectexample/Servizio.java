@@ -19,12 +19,25 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.speech.tts.TextToSpeech;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.util.Log;
 import android.widget.Toast;
 
 
+import com.fuzzylite.Engine;
+import com.fuzzylite.FuzzyLite;
+import com.fuzzylite.Op;
+import com.fuzzylite.activation.General;
+import com.fuzzylite.defuzzifier.Centroid;
+import com.fuzzylite.norm.s.Maximum;
+import com.fuzzylite.norm.t.AlgebraicProduct;
+import com.fuzzylite.rule.Rule;
+import com.fuzzylite.rule.RuleBlock;
+import com.fuzzylite.term.Ramp;
+import com.fuzzylite.variable.InputVariable;
+import com.fuzzylite.variable.OutputVariable;
 import com.st.BlueSTSDK.Debug;
 import com.st.BlueSTSDK.Feature;
 import com.st.BlueSTSDK.Features.FeatureAcceleration;
@@ -40,6 +53,7 @@ import com.st.BlueSTSDK.Utils.InvalidBleAdvertiseFormat;
 import com.st.BlueSTSDK.Utils.ScanCallbackBridge;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -52,6 +66,9 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,11 +84,12 @@ import static com.st.BlueSTSDK.Config.Register.Access.R;
  * Created by simone on 12/06/2018.
  */
 
-public class Servizio extends Service
-{
+public class Servizio extends Service {
 
-    Persona persona = new Persona(null,0,0,0);
+    Persona persona = new Persona(null, 0, 0, 0);
 
+
+    String minuti;
 
     Debug debug;
 
@@ -83,7 +101,7 @@ public class Servizio extends Service
 
 
     BluetoothLeScanner btScanner;
-    SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy \n HH:mm:ss");
+
     Date date = new Date();
 
     ArrayList<BluetoothDevice> devicesDiscovered = new ArrayList<BluetoothDevice>();
@@ -102,11 +120,11 @@ public class Servizio extends Service
     ArrayList<String> listaMACADDRESS_indossabili = new ArrayList<>();
     private JSONObject JsonObj = new JSONObject();
     SimpleDateFormat dateFormat_ora = new SimpleDateFormat(" HH:mm:ss");
-    SimpleDateFormat dateFormat_minuti = new SimpleDateFormat("HH:mm");
+    SimpleDateFormat dateFormat_giorno = new SimpleDateFormat("dd-MM-yyyy");
 
     File memory = Environment.getExternalStorageDirectory();
-    File file = new File(memory.getAbsolutePath() + "/Reports" +"/reports_"+ dateFormat_minuti.format(date), "Report_" +
-            "sensore_indossabile" + ".json");
+
+    File file;
 
 
     ///////////////////////////////////Codici di stato e pericolo ////////////////////
@@ -119,12 +137,7 @@ public class Servizio extends Service
     private String corsa = "A13";
 
 
-
-
-
-
-    public Servizio()
-    {
+    public Servizio() {
 
     }
 
@@ -139,16 +152,15 @@ public class Servizio extends Service
 
 
 
-
         btManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         btAdapter = btManager.getAdapter();
 
         mp = MediaPlayer.create(getApplicationContext(), com.st.BlueSTSDK.R.raw.alarm);
 
         /////Aggiunta MacAddress
-        String path = Environment.getExternalStorageDirectory().toString()+"/MACADDRESS_INDOSSABILE";
+        String path = Environment.getExternalStorageDirectory().toString() + "/MACADDRESS/Mac.json";
 
-        File directory = new File(path);
+ /*       File directory = new File(path);
 
         File[] files = directory.listFiles();
 
@@ -172,13 +184,50 @@ public class Servizio extends Service
                     Log.d("Exception",e.toString());
                 }
             }
+        }*/
+        try {
+            File yourFile = new File(path);
+            FileInputStream stream = new FileInputStream(yourFile);
+            String jsonStr = null;
+            try {
+                FileChannel fc = stream.getChannel();
+                MappedByteBuffer bb = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
+
+                jsonStr = Charset.defaultCharset().decode(bb).toString();
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                stream.close();
+            }
+
+
+            JSONObject jsonObj = new JSONObject(jsonStr);
+
+
+            // Getting data JSON Array nodes
+            JSONObject c  = jsonObj.getJSONObject("Sensore_Indossabile");
+
+                String id = c.getString("Mac_Address");
+                // adding each child node to HashMap key => value
+                listaMACADDRESS_indossabili.add(id);
+                System.out.println("AAA"+listaMACADDRESS_indossabili.get(0).toString());
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+
+
+
+
 
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startScanning();
+        minuti = intent.getStringExtra("Minuti");
+         file = new File(memory.getAbsolutePath() + "/Reports" + "/reports_" + minuti, "Report_" +
+                "sensore_indossabile" + ".json");
         Toast.makeText(this, "Servizio indossabile partito", Toast.LENGTH_SHORT).show();
         return super.onStartCommand(intent,flags,startId);
     }
@@ -391,7 +440,7 @@ public class Servizio extends Service
             dataString =   data[1];
             //  datastring2 = FEATURE_TEMPERATURE + " : " + String.format("%.2f", T1) + "[" + unit + "]";
 
-
+            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
             final String dateTime = dateFormat.format(date);
             final String dataOra = dateFormat_ora.format(date);
 
@@ -490,6 +539,7 @@ public class Servizio extends Service
                         caduta();
 
                     Date date = new Date();
+                    SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
                     final String dateTime = dateFormat.format(date);
 
 
@@ -693,6 +743,7 @@ public class Servizio extends Service
               System.out.println("PERSONA " + persona.getHumidity());
             }
             Date date = new Date();
+            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
             final String dateTime = dateFormat.format(date);
             final String dataOra = dateFormat_ora.format(date);
 
@@ -709,7 +760,8 @@ public class Servizio extends Service
 
                 if(listaHum.size() == 10){
                     try {
-                        JsonObj.put("Acquisizioni H " +"\n" + dataOra, JsonarrayH(listaHum));
+               //         JsonObj.put("Acquisizioni H " +"\n" + dataOra, JsonarrayH(listaHum));
+                        JsonarrayH(listaHum);
                     }
                     catch (Exception e){
                         e.printStackTrace();
@@ -729,7 +781,8 @@ public class Servizio extends Service
 
                 if(listaStato.size() == 10){
                     try {
-                        JsonObj.put("Acquisizioni Stato " +"\n" + dataOra, JsonarrayStato(listaStato));
+                  //      JsonObj.put("Acquisizioni Stato " +"\n" + dataOra, JsonarrayStato(listaStato));
+                        JsonarrayStato(listaStato);
                     }
                     catch (Exception e){
                         e.printStackTrace();
@@ -755,7 +808,8 @@ public class Servizio extends Service
                 if(listaTemp.size() == 10) {
                     try {
 
-                        JsonObj.put("Acquisizioni T " + "\n" + dataOra, JsonarrayT(listaTemp));
+                    //    JsonObj.put("Acquisizioni T " + "\n" + dataOra, JsonarrayT(listaTemp));
+                        JsonarrayT(listaTemp);
                     }
                     catch (Exception e){
                         e.printStackTrace();
@@ -769,7 +823,7 @@ public class Servizio extends Service
 
                     try {
                         output = new BufferedWriter(new FileWriter(file));
-                        output.write('\n' + JsonObj.toString());
+                        output.write( JsonObj.toString());
                         output.close();
                     }
                     catch (Exception e){
@@ -842,62 +896,65 @@ public class Servizio extends Service
     }*/
 
 
-    private JSONArray JsonarrayH(TreeMap<String,Float> lista) {
+    private JSONArray JsonarrayH(TreeMap<String,Float> lista) throws JSONException {
         JSONArray JSONH = new JSONArray();
         for(String data : lista.keySet()) {
             JSONObject umidità = new JSONObject();
             try {
-                umidità.put("Valore:", lista.get(data));
-                umidità.put("Unit","[%]");
+                umidità.put("valore", lista.get(data));
+                umidità.put("unit","[%]");
                 umidità.put("timestamp", data);
-                umidità.put("Nodo", listaMACADDRESS_indossabili.get(0));
+                umidità.put("nodo", listaMACADDRESS_indossabili.get(0));
                 JSONH.put(umidità);
             }
             catch (Exception e){
                 e.printStackTrace();
                 Log.e("VOLLEY" , "ERROR" , e);
             }
+            JsonObj.accumulate("acquisizioni_umidita", umidità);
         }
         return JSONH;
     }
 
 
 
-    private JSONArray JsonarrayT(TreeMap<String,Float> lista) {
+    private JSONArray JsonarrayT(TreeMap<String,Float> lista) throws JSONException {
         JSONArray JSONtemp = new JSONArray();
         for(String data : lista.keySet()) {
             JSONObject temperatura = new JSONObject();
             try {
-                temperatura.put("Valore:", lista.get(data));
-                temperatura.put("Unit","[°C]");
+                temperatura.put("valore", lista.get(data));
+                temperatura.put("unit","[celsius]");
                 temperatura.put("timestamp",data);
-                temperatura.put("Nodo",listaMACADDRESS_indossabili.get(0));
+                temperatura.put("nodo",listaMACADDRESS_indossabili.get(0));
                 JSONtemp.put(temperatura);
             }
             catch (Exception e){
                 e.printStackTrace();
                 Log.e("VOLLEY" , "ERROR" , e);
             }
+            JsonObj.accumulate("acquisizioni_temperatura", temperatura);
         }
         return JSONtemp;
     }
 
 
 
-    private JSONArray JsonarrayStato (TreeMap<String,String> lista) throws IOException {
+    private JSONArray JsonarrayStato (TreeMap<String,String> lista) throws IOException, JSONException {
         JSONArray JSONstato = new JSONArray();
         for(String data : lista.keySet()) {
             JSONObject stato = new JSONObject();
             try {
-                stato.put("Stato:", lista.get(data));
+                stato.put("stato", lista.get(data));
                 stato.put("timestamp",data);
-                stato.put("Nodo",listaMACADDRESS_indossabili.get(0));
+                stato.put("nodo",listaMACADDRESS_indossabili.get(0));
                 JSONstato.put(stato);
             }
             catch (Exception e){
                 e.printStackTrace();
                 Log.e("VOLLEY" , "ERROR" , e);
             }
+            JsonObj.accumulate("acquisizioni_stato", stato);
         }
 
         return JSONstato;

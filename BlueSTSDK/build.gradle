@@ -33,6 +33,8 @@ dependencies {
     testImplementation "org.mockito:mockito-core:$rootProject.mockitoVersion"
     testImplementation "org.robolectric:robolectric:3.2.2"
     implementation 'com.karumi:dexter:5.0.0'
+    implementation 'org.apache.poi:poi-ooxml:3.17'
+    implementation 'com.fasterxml:aalto-xml:1.0.0'
 
     //testCompile 'org.robolectric:android-all:5.0.0_r2-robolectric-1'
     //testCompile 'org.robolectric:shadows-core:3.0'
